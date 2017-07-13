@@ -99,3 +99,11 @@ ENV/
 
 # mypy
 .mypy_cache/
+
+# data
+data/
+
+# pre-trained word2vec model
+GoogleNews-vectors-negative300.bin
+
+*.DS_Store
