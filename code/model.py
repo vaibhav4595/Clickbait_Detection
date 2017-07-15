@@ -1,8 +1,16 @@
+from __future__ import division
 import numpy as np
+import pickle as pkl
+import pdb
+from ast import literal_eval
+from tqdm import tqdm
+from gensim.models.keyedvectors import KeyedVectors
+from gensim.models import Doc2Vec, doc2vec
 import keras
 from keras.layers import Layer, Input, merge, Dense, LSTM, Bidirectional, GRU, SimpleRNN, Dropout
 from keras.layers.merge import concatenate, dot, multiply
 from keras.models import Model
+from keras.callbacks import ModelCheckpoint 
 from attention import AttentionWithContext
 
 
@@ -98,8 +106,147 @@ class Detector:
 
 
     def fit_model(self, inputs, outputs, epochs):
-        self.model.fit(inputs, outputs, epochs=epochs, verbose=1)
+        filepath="../weights/"+'yo'+"/weights-{epoch:02d}-{val_loss:.2f}.hdf5"
+        checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
+        callbacks_list = [checkpoint]
+        self.model.fit(inputs, outputs, validation_split=0.2, epochs=epochs, callbacks=callbacks_list, verbose=1)
 
+
+def train():
+
+    fp = open('../../clickbait17-validation-170630/instances.jsonl')
+    all_lines = fp.readlines()
+    lines = all_lines[:int(len(all_lines)*0.7)]
+    
+    fp2 = open('../../clickbait17-validation-170630/truth.jsonl')
+    lines2 = fp2.readlines()
+    
+    article_embed = pkl.load(open('../data/article_embed.pkl'))
+
+    words = []
+    posts = []
+    targets = []
+    truth = []
+    max_len = 30
+
+    truth_d = {}
+    for line in tqdm(lines2):
+        d = literal_eval(line)
+        if d['truthClass'] == 'clickbait':
+            truth_d[d['id']] = 1
+        else:
+            truth_d[d['id']] = 0
+
+    word_vectors = KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
+    for line in tqdm(lines):
+        d = literal_eval(line)
+        posts.append(article_embed['postText_'+d['id']])
+        targets.append(article_embed['targetDescription_'+d['id']])
+        truth.append(truth_d[d['id']])
+        text = d['postText'][0].split()
+        l = len(text)
+        temp = []
+        if l >= max_len:
+            for i in range(max_len):
+                try:
+                    temp.append(word_vectors[text[i]])
+                except:
+                    temp.append(np.zeros(300))
+
+        else:
+            pad = max_len - l
+            for i in range(pad):
+                temp.append(np.zeros(300))
+            for i in range(l):
+                try:
+                    temp.append(word_vectors[text[i]])
+                except:
+                    temp.append(np.zeros(300))
+        words.append(temp)
+
+    words = np.array(words)
+    posts = np.array(posts)
+    targets = np.array(targets)
+    
+    tester = Detector(max_len, 300, 300)
+    tester.set_params('relu')
+    tester.create_model()
+    tester.fit_model([words, posts, targets], truth, 10)
+
+
+def test():
+
+    model = Doc2Vec.load('../data/embed_model')
+    fp = open('../../clickbait17-validation-170630/instances.jsonl')
+    all_lines = fp.readlines()
+    lines = all_lines[int(len(all_lines)*0.7):]
+    
+    fp2 = open('../../clickbait17-validation-170630/truth.jsonl')
+    lines2 = fp2.readlines()
+    
+    article_embed = pkl.load(open('../data/article_embed.pkl'))
+
+    words = []
+    posts = []
+    targets = []
+    truth = []
+    max_len = 30
+
+    truth_d = {}
+    for line in tqdm(lines2):
+        d = literal_eval(line)
+        if d['truthClass'] == 'clickbait':
+            truth_d[d['id']] = 1
+        else:
+            truth_d[d['id']] = 0
+    
+    word_vectors = KeyedVectors.load_word2vec_format('../data/GoogleNews-vectors-negative300.bin', binary=True)
+    for line in tqdm(lines):
+        d = literal_eval(line)
+        
+        posts.append(model.infer_vector(d['postText']))
+        targets.append(model.infer_vector(d['targetDescription']))
+        text = d['postText'][0].split()
+        truth.append(truth_d[d['id']])
+        l = len(text)
+        temp = []
+        if l >= max_len:
+            for i in range(max_len):
+                try:
+                    temp.append(word_vectors[text[i]])
+                except:
+                    temp.append(np.zeros(300))
+
+        else:
+            pad = max_len - l
+            for i in range(pad):
+                temp.append(np.zeros(300))
+            for i in range(l):
+                try:
+                    temp.append(word_vectors[text[i]])
+                except:
+                    temp.append(np.zeros(300))
+        words.append(temp)
+
+    words = np.array(words)
+    posts = np.array(posts)
+    targets = np.array(targets)
+    
+    tester = Detector(max_len, 300, 300)
+    tester.set_params('relu')
+    tester.create_model()
+    tester.model.load_weights('../weights/yo/weights-02-0.39.hdf5')
+    out = tester.model.predict([words, posts, targets])
+
+    hit = 0
+    for i in range(out.shape[0]):
+        print out[i]
+        if out[i] >= 0.5 and truth[i] == 1:
+            hit += 1
+        elif out[i] <= 0.5 and truth[i] == 0:
+            hit += 1
+
+    print hit/out.shape[0]
 
 def custom_test():
 
@@ -128,4 +275,4 @@ def custom_test():
 
 
 if __name__=="__main__":
-    custom_test()
+    test()
