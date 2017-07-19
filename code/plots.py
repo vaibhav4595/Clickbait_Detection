@@ -8,6 +8,10 @@ from nltk.corpus import stopwords
 import numpy as Math
 from sklearn.manifold import TSNE
 import pylab as Plot
+from matplotlib import pyplot as plt
+import numpy as np
+from sklearn.decomposition import TruncatedSVD
+import matplotlib.patches as mpatches
 
 fp = open('./data/instances.jsonl')
 lines = fp.readlines()
@@ -49,6 +53,7 @@ np_posts = Math.array(posts)
 np_targets = Math.array(targets)
 np_titles = Math.array(titles)
 np_words = Math.array(words)
+np_truth = Math.array(truth)
 np_unique_words = Math.array(unique_words)
 
 tfidf_vectorizer = sklearn.feature_extraction.text.TfidfVectorizer(tokenizer=word_tokenize,
@@ -56,9 +61,9 @@ tfidf_vectorizer = sklearn.feature_extraction.text.TfidfVectorizer(tokenizer=wor
                                     max_df=1.0,
                                     min_df=1,
                                     lowercase=True)
-tfidf_matrix = tfidf_vectorizer.fit_transform(posts)
-desc_tfidf_matrix = tfidf_vectorizer.fit_transform(targets)
-title_tfidf_matrix = tfidf_vectorizer.fit_transform(titles)
+tfidf_matrix = tfidf_vectorizer.fit_transform(np_posts)
+desc_tfidf_matrix = tfidf_vectorizer.fit_transform(np_targets)
+title_tfidf_matrix = tfidf_vectorizer.fit_transform(np_titles)
 
 def Hbeta(D = Math.array([]), beta = 1.0):
     """Compute the perplexity and the P-row for a specific value of the precision of a Gaussian distribution."""
@@ -70,7 +75,7 @@ def Hbeta(D = Math.array([]), beta = 1.0):
     P = P / sumP;
     return H, P;
 
-def x2p(X = Math.array([]), tol = 1e-5, perplexity = 30.0):
+def x2p(X = Math.array([]), tol = 1e-5, perplexity = 20.0):
     """Performs a binary search to get P-values in such a way that each conditional Gaussian has the same perplexity."""
 
     # Initialize some variables
@@ -136,7 +141,7 @@ def pca(X = Math.array([]), no_dims = 50):
     Y = Math.dot(X, M[:,0:no_dims]);
     return Y;
 
-def tsne(X = Math.array([]), no_dims = 2, initial_dims = 50, perplexity = 30.0):
+def tsne(X = Math.array([]), no_dims = 2, initial_dims = 50, perplexity = 20.0):
     """Runs t-SNE on the dataset in the NxD array X to reduce its dimensionality to no_dims dimensions.
     The syntaxis of the function is Y = tsne.tsne(X, no_dims, perplexity), where X is an NxD NumPy array."""
 
@@ -206,14 +211,64 @@ def tsne(X = Math.array([]), no_dims = 2, initial_dims = 50, perplexity = 30.0):
     # Return solution
     return Y;
 
-Y = tsne(tfidf_matrix, 2, 50, 20.0)
-Plot.scatter(Y[:,0], Y[:,1], 20, ids)
-Plot.savefig('./data/word_plot.png')
+def plot_embedding(X, title=None):
+    x_min, x_max = np.min(X, 0), np.max(X, 0)
+    X = (X - x_min) / (x_max - x_min)
 
-Y1 = tsne(desc_tfidf_matrix, 2, 50, 20.0)
-Plot.scatter(Y1[:,0], Y1[:,1], 20, ids)
-Plot.savefig('./data/desc_plot.png')
+    plt.figure()
+    ax = plt.subplot(111)
+    for i in range(X.shape[0]):
+        plt.text(X[i, 0], X[i, 1], str(digits.target[i]),
+                 color=plt.cm.Set1(y[i] / 10.),
+                 fontdict={'weight': 'bold', 'size': 9})
 
-Y2 = tsne(title_tfidf_matrix, 2, 50, 20.0)
-Plot.scatter(Y2[:,0], Y2[:,1], 20, ids)
-Plot.savefig('./data/desc_plot.png')
+    if hasattr(offsetbox, 'AnnotationBbox'):
+        # only print thumbnails with matplotlib > 1.0
+        shown_images = np.array([[1., 1.]])  # just something big
+        for i in range(digits.data.shape[0]):
+            dist = np.sum((X[i] - shown_images) ** 2, 1)
+            if np.min(dist) < 4e-3:
+                # don't show points that are too close
+                continue
+            shown_images = np.r_[shown_images, [X[i]]]
+            imagebox = offsetbox.AnnotationBbox(
+                offsetbox.OffsetImage(digits.images[i], cmap=plt.cm.gray_r),
+                X[i])
+            ax.add_artist(imagebox)
+    plt.xticks([]), plt.yticks([])
+    if title is not None:
+        plt.title(title)
+
+X_reduced = TruncatedSVD(n_components=50, random_state=0).fit_transform(tfidf_matrix)
+X_embedded = TSNE(n_components=2, perplexity=20.0, verbose=2).fit_transform(X_reduced)
+fig = plt.figure(figsize=(10, 10))
+colorb = ['red', 'green']
+classes = ['clickbait', 'no-clickbait']
+red_patch = mpatches.Patch(color='red', label='clickbait')
+green_patch = mpatches.Patch(color='green', label='no-clickbait')
+for j in range(2):
+    for i in range(1000):
+        if (truth[i] == j):
+            plt.scatter(X_embedded[i, 0], X_embedded[i, 1], 15, colorb[j])
+plt.legend(handles=[red_patch, green_patch])
+plt.savefig('./data/word_plot.png')
+
+X_desc_reduced = TruncatedSVD(n_components=50, random_state=0).fit_transform(desc_tfidf_matrix)
+X_desc_embedded = TSNE(n_components=2, perplexity=20.0, verbose=2).fit_transform(X_desc_reduced)
+fig = plt.figure(figsize=(10, 10))
+for j in range(2):
+    for i in range(1000):
+        if (truth[i] == j):
+            plt.scatter(X_desc_embedded[i, 0], X_desc_embedded[i, 1], 15, colorb[j])
+plt.legend(handles=[red_patch, green_patch])
+plt.savefig('./data/desc_plot.png')
+
+X_title_reduced = TruncatedSVD(n_components=50, random_state=0).fit_transform(title_tfidf_matrix)
+X_title_embedded = TSNE(n_components=2, perplexity=20.0, verbose=2).fit_transform(X_title_reduced)
+fig = plt.figure(figsize=(10, 10))
+for j in range(2):
+    for i in range(1000):
+        if (truth[i] == j):
+            plt.scatter(X_title_embedded[i, 0], X_title_embedded[i, 1], 15, colorb[j])
+plt.legend(handles=[red_patch, green_patch])
+plt.savefig('./data/title_plot.png')
