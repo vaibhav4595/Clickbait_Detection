@@ -107,3 +107,6 @@ data/
 GoogleNews-vectors-negative300.bin
 
 *.DS_Store
+
+# Stanford NER model
+*stanford-ner-2014-01-04.zip
