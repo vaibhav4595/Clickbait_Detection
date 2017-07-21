@@ -247,7 +247,7 @@ classes = ['clickbait', 'no-clickbait']
 red_patch = mpatches.Patch(color='red', label='clickbait')
 green_patch = mpatches.Patch(color='green', label='no-clickbait')
 for j in range(2):
-    for i in range(1000):
+    for i in range(len(np_posts)):
         if (truth[i] == j):
             plt.scatter(X_embedded[i, 0], X_embedded[i, 1], 15, colorb[j])
 plt.legend(handles=[red_patch, green_patch])
@@ -257,7 +257,7 @@ X_desc_reduced = TruncatedSVD(n_components=50, random_state=0).fit_transform(des
 X_desc_embedded = TSNE(n_components=2, perplexity=20.0, verbose=2).fit_transform(X_desc_reduced)
 fig = plt.figure(figsize=(10, 10))
 for j in range(2):
-    for i in range(1000):
+    for i in range(len(np_targets)):
         if (truth[i] == j):
             plt.scatter(X_desc_embedded[i, 0], X_desc_embedded[i, 1], 15, colorb[j])
 plt.legend(handles=[red_patch, green_patch])
@@ -267,7 +267,7 @@ X_title_reduced = TruncatedSVD(n_components=50, random_state=0).fit_transform(ti
 X_title_embedded = TSNE(n_components=2, perplexity=20.0, verbose=2).fit_transform(X_title_reduced)
 fig = plt.figure(figsize=(10, 10))
 for j in range(2):
-    for i in range(1000):
+    for i in range(len(np_titles)):
         if (truth[i] == j):
             plt.scatter(X_title_embedded[i, 0], X_title_embedded[i, 1], 15, colorb[j])
 plt.legend(handles=[red_patch, green_patch])
