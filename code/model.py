@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from __future__ import division
 import numpy as np
 import pickle as pkl
@@ -12,7 +13,9 @@ from keras.layers.merge import concatenate, dot, multiply
 from keras.models import Model
 from keras.callbacks import ModelCheckpoint 
 from attention import AttentionWithContext
-
+import sys
+import argparse
+import json
 
 class Detector:
     """
@@ -273,6 +276,72 @@ def custom_test():
     tester.create_model()
     tester.fit_model([input1, input2, input3], output1, 10)
 
+# myClassifier -i /path/to/directory -o /path/to/results
+def run_tira(input_path, result_path):
+    model = Doc2Vec.load('/home/tuna/Clickbait_Detection/embed_model')
+    fp = open('input_path/instances.jsonl')
+    lines = fp.readlines()
+    
+    article_embed = pkl.load(open('/home/tuna/Clickbait_Detection/article_embed.pkl'))
+
+    words = []
+    posts = []
+    targets = []
+    ids = []
+    max_len = 30
+    
+    word_vectors = KeyedVectors.load_word2vec_format('/home/tuna/Clickbait_Detection/GoogleNews-vectors-negative300.bin', binary=True)
+    for line in tqdm(lines):
+        d = literal_eval(line)
+        
+        posts.append(model.infer_vector(d['postText']))
+        targets.append(model.infer_vector(d['targetDescription']))
+        ids.append(d['id'])
+        text = d['postText'][0].split()
+        l = len(text)
+        temp = []
+        if l >= max_len:
+            for i in range(max_len):
+                try:
+                    temp.append(word_vectors[text[i]])
+                except:
+                    temp.append(np.zeros(300))
+
+        else:
+            pad = max_len - l
+            for i in range(pad):
+                temp.append(np.zeros(300))
+            for i in range(l):
+                try:
+                    temp.append(word_vectors[text[i]])
+                except:
+                    temp.append(np.zeros(300))
+        words.append(temp)
+
+    words = np.array(words)
+    posts = np.array(posts)
+    targets = np.array(targets)
+    ids = np.array(ids)
+    
+    tester = Detector(max_len, 300, 300)
+    tester.set_params('relu')
+    tester.create_model()
+    tester.model.load_weights('/home/tuna/Clickbait_Detection/yo/weights-02-0.39.hdf5')
+    out = tester.model.predict([words, posts, targets])
+
+    res_file = open(result_path+'/results.jsonl', 'w+', encoding='utf-8')
+    for i in range(len(out)):
+        res = {}
+        res['id'] = ids[i]
+        res['clickbaitScore'] = out[i]
+        res_file.write(json.dumps(res, ensure_ascii=False))
 
 if __name__=="__main__":
-    test()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-i', '--input', help="Enter absolute path of input directory")
+    parser.add_argument('-o', '--output', help="Enter absolute path of results directory")
+    args = parser.parse_args()
+    ip_path = args.input
+    op_path = args.output
+    run_tira(ip_path, op_path)
+    # test()
