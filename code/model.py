@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 from __future__ import division
 import numpy as np
 import pickle as pkl
@@ -9,20 +8,21 @@ from gensim.models.keyedvectors import KeyedVectors
 from gensim.models import Doc2Vec, doc2vec
 import keras
 from keras.layers import Layer, Input, merge, Dense, LSTM, Bidirectional, GRU, SimpleRNN, Dropout
-from keras.layers.merge import concatenate, dot, multiply
+from keras.layers.merge import concatenate, dot, multiply, add
 from keras.models import Model
 from keras.callbacks import ModelCheckpoint 
 from attention import AttentionWithContext
 import sys
 import argparse
+import codecs
 import json
 
 class Detector:
     """
-    Creator Class for Clickcbait Detection System
+    Creator Class for Clickbait Detection System
     """
 
-    def __init__(self, title_max, word_embedding_size, doc2vec_size):
+    def __init__(self, title_max, word_embedding_size, doc2vec_size, image_size):
         """
         Initiliases the following parameters
         ===============================================
@@ -36,6 +36,7 @@ class Detector:
         self.title_max = title_max
         self.word_embedding_size = word_embedding_size
         self.doc2vec_size = doc2vec_size
+        self.image_size = image_size
 
     def set_params(self, activation):
         """
@@ -70,9 +71,13 @@ class Detector:
         title_words = Input(shape=(self.title_max, self.word_embedding_size))
         text_embed_input = Input(shape=(self.doc2vec_size, ))
         title_embed_input = Input(shape=(self.doc2vec_size, ))
+        image_embed_input = Input(shape=(self.image_size, ))
+        image_small = Dense(300, activation=self.activation)(image_embed_input)
 
         # Layers for the Model Component 1
         lstm_layer = Bidirectional(LSTM(64, return_sequences=True))(title_words)
+        lstm_layer = Bidirectional(LSTM(64, return_sequences=True))(lstm_layer)
+        lstm_layer = Bidirectional(LSTM(64, return_sequences=True))(lstm_layer)
         attention_layer = AttentionWithContext()(lstm_layer)
         dropout1 = Dropout(0.2)(attention_layer)
         left_hidden_layer1 = Dense(64, activation=self.activation)(dropout1)
@@ -93,23 +98,40 @@ class Detector:
         title_hid3 = shared_hidden_layer3(title_hid2)
 
         elem_wise_vector = multiply([text_hid3, title_hid3])
+        
+        # Layers for the Model Component 3 (weights are shared)
+        shared_hidden_layer_p1 = Dense(128, activation=self.activation)
+        image_hid1 = shared_hidden_layer_p1(image_small)
+        title_hid_p1 = shared_hidden_layer_p1(title_embed_input)
+
+        shared_hidden_layer_p2 = Dense(64, activation=self.activation)
+        image_hid2 = shared_hidden_layer_p2(image_hid1)
+        title_hid_p2 = shared_hidden_layer_p2(title_hid_p1)
+
+        shared_hidden_layer_p3 = Dense(32, activation=self.activation)
+        image_hid3 = shared_hidden_layer_p3(image_hid2)
+        title_hid_p3 = shared_hidden_layer_p3(title_hid_p2)
+
+        elem_wise_vector2 = multiply([image_hid3, title_hid_p3])
 
         # Combines both the left and the right component
-        combined1 = concatenate([left_hidden_layer2, elem_wise_vector])
+        combined1 = concatenate([left_hidden_layer2, elem_wise_vector, elem_wise_vector2])
         dropout_overall1 = Dropout(0.2)(combined1)
         combined2 = Dense(32, activation=self.activation)(dropout_overall1)
 
         # Predicts
         output = Dense(1, activation='sigmoid')(combined2)
+#        output = Dense(1, activation='sigmoid')(elem_wise_vector2)
 
-        self.model = Model(inputs=[title_words] + [text_embed_input] + [title_embed_input], outputs=output)
+#        self.model = Model(inputs=[title_embed_input] + [image_embed_input], outputs=output)
+        self.model = Model(inputs=[title_words] + [text_embed_input] + [title_embed_input] + [image_embed_input], outputs=output)
         self.model.compile(optimizer='adadelta', loss='binary_crossentropy', metrics=['accuracy'])
 
         print self.model.summary()
 
 
     def fit_model(self, inputs, outputs, epochs):
-        filepath="../weights/"+'yo'+"/weights-{epoch:02d}-{val_loss:.2f}.hdf5"
+        filepath="../weights/"+'3lstm'+"/weights-{epoch:02d}-{val_loss:.2f}.hdf5"
         checkpoint = ModelCheckpoint(filepath, monitor='val_loss', verbose=1, save_best_only=True, mode='min')
         callbacks_list = [checkpoint]
         self.model.fit(inputs, outputs, validation_split=0.2, epochs=epochs, callbacks=callbacks_list, verbose=1)
@@ -125,11 +147,13 @@ def train():
     lines2 = fp2.readlines()
     
     article_embed = pkl.load(open('../data/article_embed.pkl'))
+    image_embed = pkl.load(open('../data/image_embedding_4096.pkl'))
 
     words = []
     posts = []
     targets = []
     truth = []
+    images = []
     max_len = 30
 
     truth_d = {}
@@ -146,6 +170,10 @@ def train():
         posts.append(article_embed['postText_'+d['id']])
         targets.append(article_embed['targetDescription_'+d['id']])
         truth.append(truth_d[d['id']])
+        try:
+            images.append(image_embed[d['id']])
+        except:
+            images.append(np.zeros(4096))
         text = d['postText'][0].split()
         l = len(text)
         temp = []
@@ -170,11 +198,13 @@ def train():
     words = np.array(words)
     posts = np.array(posts)
     targets = np.array(targets)
-    
-    tester = Detector(max_len, 300, 300)
+    images = np.array(images)
+
+    tester = Detector(max_len, 300, 300, 4096)
     tester.set_params('relu')
     tester.create_model()
-    tester.fit_model([words, posts, targets], truth, 10)
+    tester.fit_model([words, posts, targets, images], truth, 10)
+#    tester.fit_model([posts, images], truth, 10)
 
 
 def test():
@@ -188,11 +218,13 @@ def test():
     lines2 = fp2.readlines()
     
     article_embed = pkl.load(open('../data/article_embed.pkl'))
+    image_embed = pkl.load(open('../data/image_embedding_4096.pkl'))
 
     words = []
     posts = []
     targets = []
     truth = []
+    images = []
     max_len = 30
 
     truth_d = {}
@@ -211,6 +243,10 @@ def test():
         targets.append(model.infer_vector(d['targetDescription']))
         text = d['postText'][0].split()
         truth.append(truth_d[d['id']])
+        try:
+            images.append(image_embed[d['id']])
+        except:
+            images.append(np.zeros(4096))
         l = len(text)
         temp = []
         if l >= max_len:
@@ -233,17 +269,19 @@ def test():
 
     words = np.array(words)
     posts = np.array(posts)
+    images = np.array(images)
     targets = np.array(targets)
     
-    tester = Detector(max_len, 300, 300)
+    tester = Detector(max_len, 300, 300, 4096)
     tester.set_params('relu')
     tester.create_model()
-    tester.model.load_weights('../weights/yo/weights-02-0.39.hdf5')
-    out = tester.model.predict([words, posts, targets])
+    tester.model.load_weights('../weights/3lstm/weights-04-0.39.hdf5')
+    #out = tester.model.predict([posts, images])
+    out = tester.model.predict([words, posts, targets, images])
 
     hit = 0
     for i in range(out.shape[0]):
-        print out[i]
+        print out[i], truth[i]
         if out[i] >= 0.5 and truth[i] == 1:
             hit += 1
         elif out[i] <= 0.5 and truth[i] == 0:
@@ -276,28 +314,37 @@ def custom_test():
     tester.create_model()
     tester.fit_model([input1, input2, input3], output1, 10)
 
-# myClassifier -i /path/to/directory -o /path/to/results
 def run_tira(input_path, result_path):
+
     model = Doc2Vec.load('/home/tuna/Clickbait_Detection/embed_model')
-    fp = open('input_path/instances.jsonl')
+    fp = open(input_path+'/instances.jsonl')
     lines = fp.readlines()
     
+    fp2 = open(input_path+'/truth.jsonl')
+    lines2 = fp2.readlines()
+    
     article_embed = pkl.load(open('/home/tuna/Clickbait_Detection/article_embed.pkl'))
+    image_embed = pkl.load(open('/home/tuna/Clickbait_Detection/image_embedding_4096.pkl'))
 
     words = []
     posts = []
     targets = []
+    images = []
     ids = []
     max_len = 30
     
+    res_file = codecs.open(result_path+'/results.jsonl', 'w+', encoding='utf-8')
     word_vectors = KeyedVectors.load_word2vec_format('/home/tuna/Clickbait_Detection/GoogleNews-vectors-negative300.bin', binary=True)
     for line in tqdm(lines):
         d = literal_eval(line)
-        
+        ids.append(d['id'])
         posts.append(model.infer_vector(d['postText']))
         targets.append(model.infer_vector(d['targetDescription']))
-        ids.append(d['id'])
-        text = d['postText'][0].split()
+        text = d['postText'][0].split()        
+        try:
+            images.append(image_embed[d['id']])
+        except:
+            images.append(np.zeros(4096))
         l = len(text)
         temp = []
         if l >= max_len:
@@ -320,21 +367,23 @@ def run_tira(input_path, result_path):
 
     words = np.array(words)
     posts = np.array(posts)
+    images = np.array(images)
     targets = np.array(targets)
-    ids = np.array(ids)
     
-    tester = Detector(max_len, 300, 300)
+    tester = Detector(max_len, 300, 300, 4096)
     tester.set_params('relu')
     tester.create_model()
-    tester.model.load_weights('/home/tuna/Clickbait_Detection/yo/weights-02-0.39.hdf5')
-    out = tester.model.predict([words, posts, targets])
-
-    res_file = open(result_path+'/results.jsonl', 'w+', encoding='utf-8')
+    tester.model.load_weights('/home/tuna/Clickbait_Detection/weights-04-0.39.hdf5')
+    out = tester.model.predict([words, posts, targets, images])
     for i in range(len(out)):
         res = {}
         res['id'] = ids[i]
-        res['clickbaitScore'] = out[i]
-        res_file.write(json.dumps(res, ensure_ascii=False))
+        res['clickbaitScore'] = float(out.tolist()[i][0])
+        if i == 0:
+           print(type(res['clickbaitScore']))
+           print(json.dumps(res, ensure_ascii=False)) 
+        res_file.write(json.dumps(res, ensure_ascii=False)+'\n')
+    res_file.close()
 
 if __name__=="__main__":
     parser = argparse.ArgumentParser()
