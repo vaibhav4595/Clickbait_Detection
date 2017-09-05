@@ -16,6 +16,7 @@ import sys
 import argparse
 import codecs
 import json
+from extract_fc7 import create_embed
 
 class Detector:
     """
@@ -316,12 +317,16 @@ def custom_test():
 
 def run_tira(input_path, result_path):
 
+    print "creating image embeddings"
+    create_embed(input_path)
+    print "image embeddings done, loading doc2vec embeddings"
     model = Doc2Vec.load('/home/tuna/Clickbait_Detection/embed_model')
     fp = open(input_path+'/instances.jsonl')
     lines = fp.readlines()
-    
+    print "loading article embeddings"
     article_embed = pkl.load(open('/home/tuna/Clickbait_Detection/article_embed.pkl'))
-    image_embed = pkl.load(open('/home/tuna/Clickbait_Detection/image_embedding_4096.pkl'))
+    print "loading image embeddings generated previously"
+    image_embed = pkl.load(open('/mnt/data/image-embeds/image_embed_4096.pkl'))
 
     words = []
     posts = []
@@ -331,6 +336,7 @@ def run_tira(input_path, result_path):
     max_len = 30
     
     res_file = codecs.open(result_path+'/results.jsonl', 'w+', encoding='utf-8')
+    print "loading word2vec embeddings"
     word_vectors = KeyedVectors.load_word2vec_format('/home/tuna/Clickbait_Detection/GoogleNews-vectors-negative300.bin', binary=True)
     for line in tqdm(lines):
         d = literal_eval(line)
@@ -370,15 +376,13 @@ def run_tira(input_path, result_path):
     tester = Detector(max_len, 300, 300, 4096)
     tester.set_params('relu')
     tester.create_model()
-    tester.model.load_weights('/home/tuna/Clickbait_Detection/weights-01-0.47.hdf5')
+    print "loading model weights"
+    tester.model.load_weights('/home/tuna/Clickbait_Detection/weights-04-0.39.hdf5')
     out = tester.model.predict([words, posts, targets, images])
     for i in range(len(out)):
         res = {}
         res['id'] = ids[i]
         res['clickbaitScore'] = float(out.tolist()[i][0])
-        #print ids[i]+'\t'
-        #print out.tolist()[i][0]
-        #print '\n'
         res_file.write(json.dumps(res, ensure_ascii=False)+'\n')
     res_file.close()
 
@@ -390,3 +394,4 @@ if __name__=="__main__":
     ip_path = args.input
     op_path = args.output
     run_tira(ip_path, op_path)
+    # test()
