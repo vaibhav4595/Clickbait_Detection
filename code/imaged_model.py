@@ -377,7 +377,7 @@ def run_tira(input_path, result_path):
     tester.set_params('relu')
     tester.create_model()
     print "loading model weights"
-    tester.model.load_weights('/home/tuna/Clickbait_Detection/weights-04-0.39.hdf5')
+    tester.model.load_weights('/home/tuna/Clickbait_Detection/weights-01-0.47.hdf5')
     out = tester.model.predict([words, posts, targets, images])
     for i in range(len(out)):
         res = {}
